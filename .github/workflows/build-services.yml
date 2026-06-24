@@ -156,45 +156,40 @@ jobs:
             NEXT_PUBLIC_REDIRECT_URI=https://training.sneakertail.online
             NEXT_PUBLIC_API_URL=https://api.training.sneakertail.online
 
+      - name: Setup Node for Snyk Scan
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+
+      - name: Run Snyk Container Scan
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          snyk container test --report --severity-threshold=high ${{ env.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }}
+          snyk container monitor ${{ env.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }} || true
+
+      - name: Run Trivy container scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: "${{ env.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }}"
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: 'HIGH,CRITICAL'
+
       - name: Remove IP from ACR Whitelist
         if: always() && env.RUNNER_IP != ''
         run: |
           echo "Removing firewall rule for IP ${{ env.RUNNER_IP }} from ACR ${{ env.ACR_NAME }}..."
           az acr network-rule remove --name ${{ env.ACR_NAME }} --ip-address "${{ env.RUNNER_IP }}"
 
-  trivy-container-scan:
-    name: "Trivy Scan: ${{ matrix.service }}"
-    needs: [detect-changes, build-services]
-    if: needs.detect-changes.outputs.matrix != '[]' && needs.detect-changes.outputs.matrix != ''
-    strategy:
-      fail-fast: false
-      matrix:
-        service: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
-    uses: ./.github/workflows/reusable-trivy.yml
-    with:
-      scan-type: "image"
-      scan-target: "${{ needs.detect-changes.outputs.acr-login-server }}/${{ matrix.service }}:${{ github.sha }}"
-      acr-name: "${{ needs.detect-changes.outputs.acr-name }}"
-    secrets: inherit
-
-  snyk-container-scan:
-    name: "Snyk Scan: ${{ matrix.service }}"
-    needs: [detect-changes, build-services]
-    if: needs.detect-changes.outputs.matrix != '[]' && needs.detect-changes.outputs.matrix != ''
-    strategy:
-      fail-fast: false
-      matrix:
-        service: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
-    uses: ./.github/workflows/reusable-snyk.yml
-    with:
-      scan-type: "container"
-      target: "${{ needs.detect-changes.outputs.acr-login-server }}/${{ matrix.service }}:${{ github.sha }}"
-      acr-name: "${{ needs.detect-changes.outputs.acr-name }}"
-    secrets: inherit
-
   update-gitops:
     name: "Update GitOps Image Tags"
-    needs: [detect-changes, build-services, trivy-container-scan, snyk-container-scan]
+    needs: [detect-changes, build-services]
     runs-on: ubuntu-latest
     if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && github.event_name == 'push'
     steps:
