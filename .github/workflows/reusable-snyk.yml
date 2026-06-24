@@ -66,6 +66,6 @@ jobs:
           elif [ "${{ inputs.scan-type }}" = "container" ]; then
             snyk container test --severity-threshold=high ${{ inputs.target }}
           else
-            # Default to open source / code test
-            snyk test --severity-threshold=high ${{ inputs.target }}
+            # Default to open source / code test (use --all-projects for monorepos)
+            snyk test --all-projects --severity-threshold=high ${{ inputs.target }}
           fi

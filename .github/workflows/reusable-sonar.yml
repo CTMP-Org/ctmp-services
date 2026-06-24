@@ -29,12 +29,12 @@ jobs:
           fetch-depth: 0
 
       - name: SonarQube Scan
-        uses: sonarsource/sonarqube-scan-action@v4
+        uses: sonarsource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
         with:
           args: >
-            -Dsonar.projectKey=${{ inputs.project-key }}
-            -Dsonar.projectName=${{ inputs.project-name }}
-            -Dsonar.sources=${{ inputs.scan-dir }}
+            -Dsonar.projectKey="${{ inputs.project-key }}"
+            -Dsonar.projectName="${{ inputs.project-name }}"
+            -Dsonar.sources="${{ inputs.scan-dir }}"
