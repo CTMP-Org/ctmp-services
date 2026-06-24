@@ -13,6 +13,10 @@ on:
         required: false
         type: string
         default: "."
+      organization:
+        required: false
+        type: string
+        default: "ctmp-org"
     secrets:
       SONAR_TOKEN:
         required: true
@@ -38,3 +42,4 @@ jobs:
             -Dsonar.projectKey="${{ inputs.project-key }}"
             -Dsonar.projectName="${{ inputs.project-name }}"
             -Dsonar.sources="${{ inputs.scan-dir }}"
+            -Dsonar.organization="${{ inputs.organization }}"
