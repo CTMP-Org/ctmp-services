@@ -1,0 +1,1 @@
+"""Student Service app package."""

@@ -1,0 +1,1 @@
+# admin-service app package

@@ -1,0 +1,194 @@
+name: "Build & Push Microservices"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/**'
+      - 'frontend/**'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: write
+
+env:
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_USE_OIDC: true
+  ACR_NAME: ctmp3acr
+  ACR_LOGIN_SERVER: ctmp3acr.azurecr.io
+
+jobs:
+  detect-changes:
+    name: "Detect Changed Services"
+    runs-on: ubuntu-latest
+    outputs:
+      auth-service: ${{ steps.filter.outputs.auth-service }}
+      admin-service: ${{ steps.filter.outputs.admin-service }}
+      trainer-service: ${{ steps.filter.outputs.trainer-service }}
+      student-service: ${{ steps.filter.outputs.student-service }}
+      billing-service: ${{ steps.filter.outputs.billing-service }}
+      analytics-service: ${{ steps.filter.outputs.analytics-service }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect file changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            auth-service:
+              - 'services/auth-service/**'
+            admin-service:
+              - 'services/admin-service/**'
+            trainer-service:
+              - 'services/trainer-service/**'
+            student-service:
+              - 'services/student-service/**'
+            billing-service:
+              - 'services/billing-service/**'
+            analytics-service:
+              - 'services/analytics-service/**'
+            frontend:
+              - 'frontend/**'
+
+  build-services:
+    name: "Build ${{ matrix.service }}"
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: auth-service
+            context: ./services/auth-service
+            changed: ${{ needs.detect-changes.outputs.auth-service }}
+          - service: admin-service
+            context: ./services/admin-service
+            changed: ${{ needs.detect-changes.outputs.admin-service }}
+          - service: trainer-service
+            context: ./services/trainer-service
+            changed: ${{ needs.detect-changes.outputs.trainer-service }}
+          - service: student-service
+            context: ./services/student-service
+            changed: ${{ needs.detect-changes.outputs.student-service }}
+          - service: billing-service
+            context: ./services/billing-service
+            changed: ${{ needs.detect-changes.outputs.billing-service }}
+          - service: analytics-service
+            context: ./services/analytics-service
+            changed: ${{ needs.detect-changes.outputs.analytics-service }}
+          - service: frontend
+            context: ./frontend
+            changed: ${{ needs.detect-changes.outputs.frontend }}
+    steps:
+      - name: Checkout
+        if: matrix.changed == 'true'
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        if: matrix.changed == 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Whitelist IP in ACR
+        if: matrix.changed == 'true'
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org | tr -d '\r')
+          echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
+          echo "Adding firewall rule for IP $RUNNER_IP on ACR ${{ env.ACR_NAME }}..."
+          az acr network-rule add --name ${{ env.ACR_NAME }} --ip-address "$RUNNER_IP"
+          # Sleep to allow rule propagation
+          sleep 45
+
+
+      - name: Log in to Azure Container Registry
+        if: matrix.changed == 'true'
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Set up Docker Buildx
+        if: matrix.changed == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Push Docker Image
+        if: matrix.changed == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: |
+            ${{ env.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }}
+            ${{ env.ACR_LOGIN_SERVER }}/${{ matrix.service }}:0.0.${{ github.run_number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_AZURE_AD_CLIENT_ID=${{ secrets.NEXT_PUBLIC_AZURE_AD_CLIENT_ID || secrets.AZURE_CLIENT_ID }}
+            NEXT_PUBLIC_AZURE_AD_TENANT_ID=${{ secrets.NEXT_PUBLIC_AZURE_AD_TENANT_ID || secrets.AZURE_TENANT_ID }}
+            NEXT_PUBLIC_REDIRECT_URI=https://training.sneakertail.online
+            NEXT_PUBLIC_API_URL=https://api.training.sneakertail.online
+
+      - name: Remove IP from ACR Whitelist
+        if: always() && matrix.changed == 'true' && env.RUNNER_IP != ''
+        run: |
+          echo "Removing firewall rule for IP ${{ env.RUNNER_IP }} from ACR ${{ env.ACR_NAME }}..."
+          az acr network-rule remove --name ${{ env.ACR_NAME }} --ip-address "${{ env.RUNNER_IP }}"
+
+
+  update-gitops:
+    name: "Update GitOps Image Tags"
+    needs: [detect-changes, build-services]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout GitOps Repo
+        uses: actions/checkout@v4
+        with:
+          repository: CTMP-Org/ctmp-gitops
+          token: ${{ secrets.GITOPS_REPO_PAT }}
+          path: ctmp-gitops-repo
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Update changed service tags
+        run: |
+          IMAGE_TAG="0.0.${{ github.run_number }}"
+          export IMAGE_TAG
+
+          update_tag() {
+            service="$1"
+            changed="$2"
+            if [ "$changed" = "true" ]; then
+              yq -i '.image.tag = strenv(IMAGE_TAG)' "ctmp-gitops-repo/manifests/${service}/values.yaml"
+            fi
+          }
+
+          update_tag "auth-service" "${{ needs.detect-changes.outputs.auth-service }}"
+          update_tag "admin-service" "${{ needs.detect-changes.outputs.admin-service }}"
+          update_tag "trainer-service" "${{ needs.detect-changes.outputs.trainer-service }}"
+          update_tag "student-service" "${{ needs.detect-changes.outputs.student-service }}"
+          update_tag "billing-service" "${{ needs.detect-changes.outputs.billing-service }}"
+          update_tag "analytics-service" "${{ needs.detect-changes.outputs.analytics-service }}"
+          update_tag "frontend" "${{ needs.detect-changes.outputs.frontend }}"
+
+      - name: Commit GitOps image tags
+        run: |
+          cd ctmp-gitops-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add manifests/*/values.yaml
+          if git diff --cached --quiet; then
+            echo "No GitOps image tag changes to commit."
+          else
+            git commit -m "Update image tags to 0.0.${{ github.run_number }}"
+            git push
+          fi

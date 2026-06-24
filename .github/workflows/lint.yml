@@ -1,0 +1,26 @@
+name: "Validate Python Code"
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: "Lint & Validate"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate Python syntax
+        run: |
+          find services -name "*.py" -exec python -m py_compile {} \;
+          find functions -name "*.py" -exec python -m py_compile {} \;
