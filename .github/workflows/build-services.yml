@@ -12,10 +12,6 @@ permissions:
   id-token: write
   contents: write
 
-env:
-  ACR_NAME: ctmp3acr
-  ACR_LOGIN_SERVER: ctmp3acr.azurecr.io
-
 jobs:
   detect-changes:
     name: "Detect Changed Services"
@@ -29,6 +25,8 @@ jobs:
       billing-service: ${{ steps.filter.outputs.billing-service }}
       analytics-service: ${{ steps.filter.outputs.analytics-service }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      acr-name: ${{ steps.acr-env.outputs.acr-name }}
+      acr-login-server: ${{ steps.acr-env.outputs.acr-login-server }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -70,6 +68,17 @@ jobs:
           echo "matrix=$JSON_ARRAY" >> $GITHUB_OUTPUT
           echo "Detected changed services: $JSON_ARRAY"
 
+      - name: Set ACR Env
+        id: acr-env
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "acr-name=ctmp3acr" >> $GITHUB_OUTPUT
+            echo "acr-login-server=ctmp3acr.azurecr.io" >> $GITHUB_OUTPUT
+          else
+            echo "acr-name=ctmp3acrdev" >> $GITHUB_OUTPUT
+            echo "acr-login-server=ctmp3acrdev.azurecr.io" >> $GITHUB_OUTPUT
+          fi
+
   sonar-scan:
     name: "SonarQube Scan"
     uses: ./.github/workflows/reusable-sonar.yml
@@ -90,6 +99,9 @@ jobs:
     needs: detect-changes
     runs-on: ubuntu-latest
     if: needs.detect-changes.outputs.matrix != '[]' && needs.detect-changes.outputs.matrix != ''
+    env:
+      ACR_NAME: ${{ needs.detect-changes.outputs.acr-name }}
+      ACR_LOGIN_SERVER: ${{ needs.detect-changes.outputs.acr-login-server }}
     strategy:
       fail-fast: false
       matrix:
@@ -161,8 +173,8 @@ jobs:
     uses: ./.github/workflows/reusable-trivy.yml
     with:
       scan-type: "image"
-      scan-target: "ctmp3acr.azurecr.io/${{ matrix.service }}:${{ github.sha }}"
-      acr-name: "ctmp3acr"
+      scan-target: "${{ needs.detect-changes.outputs.acr-login-server }}/${{ matrix.service }}:${{ github.sha }}"
+      acr-name: "${{ needs.detect-changes.outputs.acr-name }}"
     secrets: inherit
 
   snyk-container-scan:
@@ -176,8 +188,8 @@ jobs:
     uses: ./.github/workflows/reusable-snyk.yml
     with:
       scan-type: "container"
-      target: "ctmp3acr.azurecr.io/${{ matrix.service }}:${{ github.sha }}"
-      acr-name: "ctmp3acr"
+      target: "${{ needs.detect-changes.outputs.acr-login-server }}/${{ matrix.service }}:${{ github.sha }}"
+      acr-name: "${{ needs.detect-changes.outputs.acr-name }}"
     secrets: inherit
 
   update-gitops:
