@@ -39,7 +39,7 @@ jobs:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
         with:
           args: >
-            -Dsonar.projectKey="${{ inputs.project-key }}"
+            -Dsonar.projectKey=${{ inputs.project-key }}
             -Dsonar.projectName="${{ inputs.project-name }}"
-            -Dsonar.sources="${{ inputs.scan-dir }}"
-            -Dsonar.organization="${{ inputs.organization }}"
+            -Dsonar.sources=${{ inputs.scan-dir }}
+            -Dsonar.organization=${{ inputs.organization }}

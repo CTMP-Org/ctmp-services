@@ -62,10 +62,13 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
           if [ "${{ inputs.scan-type }}" = "iac" ]; then
-            snyk iac test --severity-threshold=high ${{ inputs.target }}
+            snyk iac test --report --severity-threshold=high ${{ inputs.target }}
           elif [ "${{ inputs.scan-type }}" = "container" ]; then
             snyk container test --severity-threshold=high ${{ inputs.target }}
+            snyk container monitor ${{ inputs.target }} || true
           else
             # Default to open source / code test (use --all-projects for monorepos)
             snyk test --all-projects --skip-unresolved --severity-threshold=high ${{ inputs.target }}
+            snyk monitor --all-projects --skip-unresolved ${{ inputs.target }} || true
           fi
+
