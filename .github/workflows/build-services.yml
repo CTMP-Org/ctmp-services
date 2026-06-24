@@ -132,7 +132,7 @@ jobs:
           echo "Adding firewall rule for IP $RUNNER_IP on ACR ${{ env.ACR_NAME }}..."
           az acr network-rule add --name ${{ env.ACR_NAME }} --ip-address "$RUNNER_IP"
           # Sleep to allow rule propagation
-          sleep 45
+          sleep 90
 
       - name: Log in to Azure Container Registry
         run: az acr login --name ${{ env.ACR_NAME }}
