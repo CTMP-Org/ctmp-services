@@ -1,6 +1,6 @@
-fastapi==0.115.6
+fastapi>=0.116.0
 uvicorn[standard]==0.34.0
-python-jose[cryptography]==3.4.0
+python-jose[cryptography]>=3.4.0
 httpx==0.28.1
 pydantic-settings==2.7.1
 jaraco.context>=6.1.0
