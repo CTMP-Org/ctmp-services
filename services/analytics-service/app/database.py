@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from sqlalchemy import create_engine, Column, String, Integer, DateTime, ForeignKey, Table
+from sqlalchemy import create_engine, Column, String, Integer, DateTime, ForeignKey, Table, Float
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 def _read_secret_file(path: str) -> str | None:

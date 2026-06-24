@@ -7,6 +7,8 @@ import { StatsCards } from "@/components/dashboard/stats-cards";
 import { InstanceChart } from "@/components/dashboard/instance-chart";
 import { CostChart } from "@/components/dashboard/cost-chart";
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
+import { AiAssistant } from "@/components/dashboard/ai-assistant";
+
 import { AlertCircle, RefreshCw, Users, FolderKanban, Sparkles } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -314,6 +316,7 @@ export default function DashboardPage() {
             </Card>
           </div>
         )}
+        <AiAssistant />
       </div>
     );
   }
@@ -359,6 +362,7 @@ export default function DashboardPage() {
           <ActivityFeed />
         </div>
       </div>
+      <AiAssistant />
     </div>
   );
 }

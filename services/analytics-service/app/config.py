@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     SERVICE_NAME: str = "analytics-service"
     PORT: int = 8000
+    AZURE_OPENAI_ENDPOINT: str = ""
+    AZURE_OPENAI_DEPLOYMENT: str = ""
+
 
     @property
     def jwks_uri(self) -> str:
