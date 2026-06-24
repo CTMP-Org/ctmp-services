@@ -110,12 +110,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Determine Version
+      - name: Determine Version and Frontend URL
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             echo "VERSION=0.${{ github.run_number }}.0" >> $GITHUB_ENV
+            echo "NEXT_PUBLIC_REDIRECT_URI=https://training.sneakertail.online" >> $GITHUB_ENV
+            echo "NEXT_PUBLIC_API_URL=https://api.training.sneakertail.online" >> $GITHUB_ENV
           else
             echo "VERSION=0.0.${{ github.run_number }}" >> $GITHUB_ENV
+            echo "NEXT_PUBLIC_REDIRECT_URI=https://dev.training.sneakertail.online" >> $GITHUB_ENV
+            echo "NEXT_PUBLIC_API_URL=https://api.dev.training.sneakertail.online" >> $GITHUB_ENV
           fi
 
       - name: Azure Login (OIDC)
@@ -144,8 +148,8 @@ jobs:
           build-args: |
             NEXT_PUBLIC_AZURE_AD_CLIENT_ID=${{ secrets.NEXT_PUBLIC_AZURE_AD_CLIENT_ID || secrets.AZURE_CLIENT_ID }}
             NEXT_PUBLIC_AZURE_AD_TENANT_ID=${{ secrets.NEXT_PUBLIC_AZURE_AD_TENANT_ID || secrets.AZURE_TENANT_ID }}
-            NEXT_PUBLIC_REDIRECT_URI=https://training.sneakertail.online
-            NEXT_PUBLIC_API_URL=https://api.training.sneakertail.online
+            NEXT_PUBLIC_REDIRECT_URI=${{ env.NEXT_PUBLIC_REDIRECT_URI }}
+            NEXT_PUBLIC_API_URL=${{ env.NEXT_PUBLIC_API_URL }}
 
       - name: Setup Node for Snyk Scan
         uses: actions/setup-node@v4
