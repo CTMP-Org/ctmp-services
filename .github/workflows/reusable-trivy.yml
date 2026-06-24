@@ -29,13 +29,15 @@ permissions:
 jobs:
   trivy:
     runs-on: ubuntu-latest
+    env:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
     steps:
       - name: Checkout Code
         if: inputs.scan-type != 'image'
         uses: actions/checkout@v4
 
       - name: Azure Login (OIDC)
-        if: inputs.scan-type == 'image' && secrets.AZURE_CLIENT_ID != ''
+        if: inputs.scan-type == 'image' && env.AZURE_CLIENT_ID != ''
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -43,7 +45,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Log in to Azure Container Registry
-        if: inputs.scan-type == 'image' && secrets.AZURE_CLIENT_ID != ''
+        if: inputs.scan-type == 'image' && env.AZURE_CLIENT_ID != ''
         run: az acr login --name ${{ inputs.acr-name }}
 
       - name: Run Trivy vulnerability scanner
