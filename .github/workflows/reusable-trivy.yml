@@ -1,0 +1,58 @@
+name: "Reusable Trivy Scan"
+
+on:
+  workflow_call:
+    inputs:
+      scan-type:
+        required: false
+        type: string
+        default: "image" # 'image', 'fs', 'config'
+      scan-target:
+        required: true
+        type: string # image name/tag or path
+      acr-name:
+        required: false
+        type: string
+        default: "ctmp3acr"
+    secrets:
+      AZURE_CLIENT_ID:
+        required: false
+      AZURE_TENANT_ID:
+        required: false
+      AZURE_SUBSCRIPTION_ID:
+        required: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  trivy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        if: inputs.scan-type != 'image'
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        if: inputs.scan-type == 'image' && secrets.AZURE_CLIENT_ID != ''
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to Azure Container Registry
+        if: inputs.scan-type == 'image' && secrets.AZURE_CLIENT_ID != ''
+        run: az acr login --name ${{ inputs.acr-name }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          scan-type: ${{ inputs.scan-type }}
+          image-ref: ${{ inputs.scan-type == 'image' && inputs.scan-target || '' }}
+          scan-ref: ${{ inputs.scan-type != 'image' && inputs.scan-target || '' }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: 'HIGH,CRITICAL'

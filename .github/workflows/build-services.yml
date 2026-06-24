@@ -1,8 +1,8 @@
-name: "Build & Push Microservices"
+name: "Build, Push & Scan Microservices"
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - 'services/**'
       - 'frontend/**'
@@ -13,10 +13,6 @@ permissions:
   contents: write
 
 env:
-  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-  ARM_USE_OIDC: true
   ACR_NAME: ctmp3acr
   ACR_LOGIN_SERVER: ctmp3acr.azurecr.io
 
@@ -25,6 +21,7 @@ jobs:
     name: "Detect Changed Services"
     runs-on: ubuntu-latest
     outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
       auth-service: ${{ steps.filter.outputs.auth-service }}
       admin-service: ${{ steps.filter.outputs.admin-service }}
       trainer-service: ${{ steps.filter.outputs.trainer-service }}
@@ -56,42 +53,60 @@ jobs:
             frontend:
               - 'frontend/**'
 
+      - name: Generate Matrix Output
+        id: set-matrix
+        run: |
+          SERVICES=()
+          if [ "${{ steps.filter.outputs.auth-service }}" = "true" ]; then SERVICES+=("auth-service"); fi
+          if [ "${{ steps.filter.outputs.admin-service }}" = "true" ]; then SERVICES+=("admin-service"); fi
+          if [ "${{ steps.filter.outputs.trainer-service }}" = "true" ]; then SERVICES+=("trainer-service"); fi
+          if [ "${{ steps.filter.outputs.student-service }}" = "true" ]; then SERVICES+=("student-service"); fi
+          if [ "${{ steps.filter.outputs.billing-service }}" = "true" ]; then SERVICES+=("billing-service"); fi
+          if [ "${{ steps.filter.outputs.analytics-service }}" = "true" ]; then SERVICES+=("analytics-service"); fi
+          if [ "${{ steps.filter.outputs.frontend }}" = "true" ]; then SERVICES+=("frontend"); fi
+          
+          # Convert array to JSON
+          JSON_ARRAY=$(jq --compact-output --null-input '$ARGS.positional' --args "${SERVICES[@]}")
+          echo "matrix=$JSON_ARRAY" >> $GITHUB_OUTPUT
+          echo "Detected changed services: $JSON_ARRAY"
+
+  sonar-scan:
+    name: "SonarQube Scan"
+    uses: ./.github/workflows/reusable-sonar.yml
+    with:
+      project-key: "ctmp-services"
+      project-name: "CTMP Services"
+    secrets: inherit
+
+  snyk-code-scan:
+    name: "Snyk Code Scan"
+    uses: ./.github/workflows/reusable-snyk.yml
+    with:
+      scan-type: "code"
+    secrets: inherit
+
   build-services:
     name: "Build ${{ matrix.service }}"
     needs: detect-changes
     runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.matrix != '[]' && needs.detect-changes.outputs.matrix != ''
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - service: auth-service
-            context: ./services/auth-service
-            changed: ${{ needs.detect-changes.outputs.auth-service }}
-          - service: admin-service
-            context: ./services/admin-service
-            changed: ${{ needs.detect-changes.outputs.admin-service }}
-          - service: trainer-service
-            context: ./services/trainer-service
-            changed: ${{ needs.detect-changes.outputs.trainer-service }}
-          - service: student-service
-            context: ./services/student-service
-            changed: ${{ needs.detect-changes.outputs.student-service }}
-          - service: billing-service
-            context: ./services/billing-service
-            changed: ${{ needs.detect-changes.outputs.billing-service }}
-          - service: analytics-service
-            context: ./services/analytics-service
-            changed: ${{ needs.detect-changes.outputs.analytics-service }}
-          - service: frontend
-            context: ./frontend
-            changed: ${{ needs.detect-changes.outputs.frontend }}
+        service: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
       - name: Checkout
-        if: matrix.changed == 'true'
         uses: actions/checkout@v4
 
+      - name: Determine Version
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "VERSION=0.${{ github.run_number }}.0" >> $GITHUB_ENV
+          else
+            echo "VERSION=0.0.${{ github.run_number }}" >> $GITHUB_ENV
+          fi
+
       - name: Azure Login (OIDC)
-        if: matrix.changed == 'true'
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -99,7 +114,6 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Whitelist IP in ACR
-        if: matrix.changed == 'true'
         run: |
           RUNNER_IP=$(curl -s https://api.ipify.org | tr -d '\r')
           echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
@@ -108,24 +122,20 @@ jobs:
           # Sleep to allow rule propagation
           sleep 45
 
-
       - name: Log in to Azure Container Registry
-        if: matrix.changed == 'true'
         run: az acr login --name ${{ env.ACR_NAME }}
 
       - name: Set up Docker Buildx
-        if: matrix.changed == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Build and Push Docker Image
-        if: matrix.changed == 'true'
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
+          context: ${{ matrix.service == 'frontend' && './frontend' || format('./services/{0}', matrix.service) }}
           push: true
           tags: |
             ${{ env.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }}
-            ${{ env.ACR_LOGIN_SERVER }}/${{ matrix.service }}:0.0.${{ github.run_number }}
+            ${{ env.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ env.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
@@ -135,24 +145,64 @@ jobs:
             NEXT_PUBLIC_API_URL=https://api.training.sneakertail.online
 
       - name: Remove IP from ACR Whitelist
-        if: always() && matrix.changed == 'true' && env.RUNNER_IP != ''
+        if: always() && env.RUNNER_IP != ''
         run: |
           echo "Removing firewall rule for IP ${{ env.RUNNER_IP }} from ACR ${{ env.ACR_NAME }}..."
           az acr network-rule remove --name ${{ env.ACR_NAME }} --ip-address "${{ env.RUNNER_IP }}"
 
+  trivy-container-scan:
+    name: "Trivy Scan: ${{ matrix.service }}"
+    needs: [detect-changes, build-services]
+    if: needs.detect-changes.outputs.matrix != '[]' && needs.detect-changes.outputs.matrix != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    uses: ./.github/workflows/reusable-trivy.yml
+    with:
+      scan-type: "image"
+      scan-target: "ctmp3acr.azurecr.io/${{ matrix.service }}:${{ github.sha }}"
+      acr-name: "ctmp3acr"
+    secrets: inherit
+
+  snyk-container-scan:
+    name: "Snyk Scan: ${{ matrix.service }}"
+    needs: [detect-changes, build-services]
+    if: needs.detect-changes.outputs.matrix != '[]' && needs.detect-changes.outputs.matrix != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    uses: ./.github/workflows/reusable-snyk.yml
+    with:
+      scan-type: "container"
+      target: "ctmp3acr.azurecr.io/${{ matrix.service }}:${{ github.sha }}"
+      acr-name: "ctmp3acr"
+    secrets: inherit
 
   update-gitops:
     name: "Update GitOps Image Tags"
-    needs: [detect-changes, build-services]
+    needs: [detect-changes, build-services, trivy-container-scan, snyk-container-scan]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && github.event_name == 'push'
     steps:
       - name: Checkout GitOps Repo
         uses: actions/checkout@v4
         with:
           repository: CTMP-Org/ctmp-gitops
           token: ${{ secrets.GITOPS_REPO_PAT }}
+          ref: ${{ github.ref_name }}
           path: ctmp-gitops-repo
+
+      - name: Determine Environment Settings
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "VERSION=0.${{ github.run_number }}.0" >> $GITHUB_ENV
+            echo "VALUES_FILE=values-prod.yaml" >> $GITHUB_ENV
+          else
+            echo "VERSION=0.0.${{ github.run_number }}" >> $GITHUB_ENV
+            echo "VALUES_FILE=values-dev.yaml" >> $GITHUB_ENV
+          fi
 
       - name: Install yq
         run: |
@@ -161,14 +211,14 @@ jobs:
 
       - name: Update changed service tags
         run: |
-          IMAGE_TAG="0.0.${{ github.run_number }}"
+          IMAGE_TAG="${{ env.VERSION }}"
           export IMAGE_TAG
 
           update_tag() {
             service="$1"
             changed="$2"
             if [ "$changed" = "true" ]; then
-              yq -i '.image.tag = strenv(IMAGE_TAG)' "ctmp-gitops-repo/manifests/${service}/values.yaml"
+              yq -i '.image.tag = strenv(IMAGE_TAG)' "ctmp-gitops-repo/manifests/${service}/${{ env.VALUES_FILE }}"
             fi
           }
 
@@ -185,10 +235,10 @@ jobs:
           cd ctmp-gitops-repo
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add manifests/*/values.yaml
+          git add manifests/*/values-dev.yaml manifests/*/values-prod.yaml
           if git diff --cached --quiet; then
             echo "No GitOps image tag changes to commit."
           else
-            git commit -m "Update image tags to 0.0.${{ github.run_number }}"
-            git push
+            git commit -m "Update image tags to ${{ env.VERSION }} (${{ github.ref_name }})"
+            git push origin ${{ github.ref_name }}
           fi
