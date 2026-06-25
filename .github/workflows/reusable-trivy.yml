@@ -13,7 +13,7 @@ on:
       acr-name:
         required: false
         type: string
-        default: "ctmp3acr"
+        default: "ctmp3prodacr"
     secrets:
       AZURE_CLIENT_ID:
         required: false
