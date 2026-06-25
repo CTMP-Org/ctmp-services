@@ -140,7 +140,7 @@ jobs:
           echo "Whitelisting IP ${{ env.RUNNER_IP }} in ACR ${{ env.ACR_NAME }}..."
           az acr network-rule add --name "${{ env.ACR_NAME }}" --ip-address "${{ env.RUNNER_IP }}"
           # Sleep to allow rule propagation
-          sleep 15
+          sleep 60
 
       - name: Log in to Azure Container Registry
         run: az acr login --name ${{ env.ACR_NAME }}
