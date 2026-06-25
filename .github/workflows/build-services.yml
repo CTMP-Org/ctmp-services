@@ -104,6 +104,7 @@ jobs:
       ACR_LOGIN_SERVER: ${{ needs.detect-changes.outputs.acr-login-server }}
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         service: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
