@@ -72,8 +72,8 @@ jobs:
         id: acr-env
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            echo "acr-name=ctmp3acr" >> $GITHUB_OUTPUT
-            echo "acr-login-server=ctmp3acr.azurecr.io" >> $GITHUB_OUTPUT
+            echo "acr-name=ctmp3prodacr" >> $GITHUB_OUTPUT
+            echo "acr-login-server=ctmp3prodacr.azurecr.io" >> $GITHUB_OUTPUT
           else
             echo "acr-name=ctmp3acrdev" >> $GITHUB_OUTPUT
             echo "acr-login-server=ctmp3acrdev.azurecr.io" >> $GITHUB_OUTPUT
