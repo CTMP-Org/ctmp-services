@@ -129,6 +129,19 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Get Runner IP
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org | tr -d '\r')
+          echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
+          echo "Runner IP: $RUNNER_IP"
+
+      - name: Whitelist IP in ACR
+        run: |
+          echo "Whitelisting IP ${{ env.RUNNER_IP }} in ACR ${{ env.ACR_NAME }}..."
+          az acr network-rule add --name "${{ env.ACR_NAME }}" --ip-address "${{ env.RUNNER_IP }}"
+          # Sleep to allow rule propagation
+          sleep 15
+
       - name: Log in to Azure Container Registry
         run: az acr login --name ${{ env.ACR_NAME }}
 
@@ -175,6 +188,12 @@ jobs:
           exit-code: '1'
           ignore-unfixed: true
           severity: 'HIGH,CRITICAL'
+
+      - name: Remove IP from ACR Whitelist
+        if: always() && env.RUNNER_IP != ''
+        run: |
+          echo "Removing IP ${{ env.RUNNER_IP }} from ACR ${{ env.ACR_NAME }}..."
+          az acr network-rule remove --name "${{ env.ACR_NAME }}" --ip-address "${{ env.RUNNER_IP }}"
 
 
 
